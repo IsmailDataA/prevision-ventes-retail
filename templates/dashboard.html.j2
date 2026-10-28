@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prévision des ventes — tableau de bord</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#0f1720;--ink2:#4a5563;--muted:#7a8494;--line:#e3e6eb;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--navy:#13294b;--up:#0a7d32;--down:#c0352f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{background:var(--navy);color:#fff;padding:36px 16px 30px}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 16px}
+  header .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.75}
+  header h1{margin:6px 0 8px;font-size:29px;line-height:1.2}
+  header p{margin:0;opacity:.85;max-width:760px}
+  header a{color:#9cc4f2}
+  main{padding:22px 0 60px}
+  .filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:16px}
+  .filters label{display:flex;flex-direction:column;font-size:12px;color:var(--ink2);font-weight:600;gap:4px}
+  select{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;min-width:200px;color:var(--ink)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kpi .v{font-size:26px;font-weight:700;letter-spacing:-.01em}
+  .kpi .l{color:var(--ink2);font-size:13px}
+  .kpi .d{font-size:13px;font-weight:600}
+  .up{color:var(--up)} .down{color:var(--down)}
+  section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px}
+  section h2{margin:0 0 4px;font-size:18px}
+  .lead{color:var(--ink2);margin:0 0 12px;font-size:14px}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--ink2);margin:4px 0 6px}
+  .legend i{display:inline-block;width:18px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  .chart{position:relative}
+  .chart svg{display:block;width:100%;height:auto;overflow:visible}
+  .tip{position:absolute;pointer-events:none;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;box-shadow:0 4px 14px rgba(15,23,32,.10);opacity:0;transition:opacity .1s;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tip b{display:block;margin-bottom:3px;color:var(--ink)}
+  .tip span{display:block;color:var(--ink2)}
+  .tip span i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+  .grid2{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+  @media (max-width:860px){.grid2{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--ink2);font-weight:600;background:#fafbfc}
+  td.n,th.n{text-align:right}
+  tr.best td{font-weight:700}
+  img{max-width:100%;height:auto;display:block}
+  .scroll{overflow-x:auto}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:13px}
+  footer{color:var(--muted);font-size:13px;text-align:center;padding:10px 16px 40px}
+  footer a{color:var(--s1)}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="eyebrow">Projet data · Prévision & pilotage commercial</div>
+  <h1>Prévision des ventes à 4 semaines — réseau de 8 magasins</h1>
+  <p>{{ n_series }} séries magasin × famille, ventes quotidiennes du {{ debut }} au {{ fin }}. Données synthétiques réalistes
+     (saisonnalités, jours fériés, promotions). <a href="{{ repo_url }}">Code source sur GitHub →</a></p>
+</div></header>
+<main><div class="wrap">
+
+  <div class="filters">
+    <label>Magasin<select id="fStore"></select></label>
+    <label>Famille de produits<select id="fFam"></select></label>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v" id="kCa">–</div><div class="l">CA des 52 dernières semaines</div><div class="d" id="kEvo"></div></div>
+    <div class="kpi"><div class="v" id="kFut">–</div><div class="l">CA prévu sur les 4 prochaines semaines</div><div class="d" id="kFutEvo"></div></div>
+    <div class="kpi"><div class="v" id="kWape">–</div><div class="l">erreur du modèle (WAPE, backtest)</div><div class="d" id="kWapeRef"></div></div>
+    <div class="kpi"><div class="v">−{{ gain_stock_pct }} %</div><div class="l">de stock de sécurité nécessaire grâce au modèle</div><div class="d">{{ stock_ma }} k€ → {{ stock_gbm }} k€ sur le réseau</div></div>
+  </div>
+
+  <section>
+    <h2>Ventes hebdomadaires et prévision</h2>
+    <p class="lead">Les 24 dernières semaines montrent ce que le modèle avait prévu 4 semaines à l'avance, face aux ventes réelles.</p>
+    <div class="legend">
+      <span><i style="background:var(--s1)"></i>Ventes réelles</span>
+      <span><i style="background:var(--s2)"></i>Prévision du modèle (backtest puis futur)</span>
+      <span><i style="background:rgba(235,104,52,.22);height:10px"></i>Intervalle indicatif 80 %</span>
+    </div>
+    <div class="chart" id="lineChart"><div class="tip" id="tip"></div></div>
+  </section>
+
+  <div class="grid2">
+    <section>
+      <h2 id="barTitle">CA par famille — 52 dernières semaines</h2>
+      <p class="lead">Évolution par rapport aux 52 semaines précédentes.</p>
+      <div class="chart" id="barChart"></div>
+    </section>
+    <section>
+      <h2>Quel modèle choisir ?</h2>
+      <p class="lead">Backtest sur 6 fenêtres de 28 jours ; stock de sécurité au coût d'achat pour 95 % de taux de service.</p>
+      <div class="scroll"><table>
+        <tr><th>Modèle</th><th class="n">Erreur</th><th class="n">Noël 2025</th><th class="n">Stock sécu.</th></tr>
+        {% for r in summary %}
+        <tr class="{{ 'best' if 'Boosting' in r.modele else '' }}"><td>{{ r.modele }}</td><td class="n">{{ r.wape }} %</td><td class="n">{{ r.noel }} %</td><td class="n">{{ r.stock }} k€</td></tr>
+        {% endfor %}
+      </table></div>
+      <p class="lead" style="margin-top:12px">Le Gradient Boosting réduit l'erreur de {{ gain_wape }} % par rapport à la moyenne des 4 dernières semaines, la méthode la plus utilisée en magasin. Biais : {{ biais_gbm }} %.</p>
+    </section>
+  </div>
+
+  <section>
+    <h2>Le test qui compte : Noël</h2>
+    <p class="lead">C'est sur les pics saisonniers que les ruptures coûtent le plus cher. Sur les 4 semaines précédant Noël 2025, l'erreur passe de {{ noel_ma }} % (moyenne 4 semaines) à {{ noel_gbm }} % avec le modèle.</p>
+    <img src="img/exemple_noel.png" alt="Prévision des jouets avant Noël : réel, modèle et moyenne glissante">
+  </section>
+
+  <section>
+    <h2>Méthode</h2>
+    <p class="lead" style="margin-bottom:6px"><strong>Variables</strong> : ventes à J-28, J-35, J-42 et J-364, moyennes glissantes, jour de la semaine, semaine de l'année, distance à Noël, jours fériés, veilles de fête, promotions planifiées.
+      Toutes sont connues au moment de prévoir : aucune information du futur n'est utilisée.</p>
+    <p class="lead" style="margin-bottom:6px"><strong>Validation</strong> : backtest à origine glissante — le modèle est réentraîné à chaque fenêtre avec les seules données disponibles à cette date.</p>
+    <p class="lead" style="margin:0"><strong>Indicateur</strong> : WAPE (somme des erreurs absolues / somme des ventes), lisible par un métier : « on se trompe en moyenne de X % du CA ».</p>
+  </section>
+
+</div></main>
+<footer>Projet réalisé par <a href="https://ismaildataa.github.io">Ismail Yahyaoui</a> — Data Analyst · Python · Machine learning · Data visualisation · Mis à jour le {{ run_date }}</footer>
+
+<script>
+const D = {{ data_json }};
+const fmtE = v => Math.round(v).toLocaleString('fr-FR').replace(/ /g,' ') + ' €';
+const fmtK = v => v >= 1e6 ? (v/1e6).toLocaleString('fr-FR',{maximumFractionDigits:2}) + ' M€' : Math.round(v/1e3).toLocaleString('fr-FR') + ' k€';
+const fmtPct = v => (v>0?'+':'') + v.toLocaleString('fr-FR',{maximumFractionDigits:1}) + ' %';
+const fmtDate = s => { const d = new Date(s+'T00:00:00'); return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}); };
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs={}, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+
+const fStore = document.getElementById('fStore'), fFam = document.getElementById('fFam');
+fStore.innerHTML = '<option value="*">Tous les magasins</option>' + D.stores.map(s => `<option>${s}</option>`).join('');
+fFam.innerHTML = '<option value="*">Toutes les familles</option>' + D.families.map(s => `<option>${s}</option>`).join('');
+
+function selection() {
+  const st = fStore.value, fa = fFam.value;
+  return Object.keys(D.series).filter(k => { const [s,f] = k.split('|'); return (st==='*'||s===st) && (fa==='*'||f===fa); });
+}
+function sumArr(keys, field) {
+  const n = D.series[keys[0]][field].length, out = new Array(n).fill(0);
+  keys.forEach(k => D.series[k][field].forEach((v,i) => out[i] += v));
+  return out;
+}
+
+function render() {
+  const keys = selection();
+  const h = sumArr(keys,'h'), b = sumArr(keys,'b'), f = sumArr(keys,'f');
+  // bande : somme quadratique des incertitudes de chaque série (hypothèse d'indépendance)
+  const band = D.futWeeks.map((_,i) => Math.sqrt(keys.reduce((a,k) => a + Math.pow(D.series[k].f[i]*D.series[k].q,2), 0)));
+  const last52 = h.slice(-52).reduce((a,c)=>a+c,0), prev52 = h.slice(-104,-52).reduce((a,c)=>a+c,0);
+  document.getElementById('kCa').textContent = fmtK(last52);
+  const evo = 100*(last52/prev52-1), kEvo = document.getElementById('kEvo');
+  kEvo.textContent = fmtPct(evo) + ' vs N-1'; kEvo.className = 'd ' + (evo>=0?'up':'down');
+  const fut = f.reduce((a,c)=>a+c,0);
+  document.getElementById('kFut').textContent = fmtK(fut);
+  const ly = h.slice(-52, -48).reduce((a,c)=>a+c,0);   // mêmes semaines l'an dernier
+  const fe = 100*(fut/ly-1), kF = document.getElementById('kFutEvo');
+  kF.textContent = fmtPct(fe) + ' vs mêmes semaines N-1'; kF.className = 'd ' + (fe>=0?'up':'down');
+  const w = m => { let e=0,a=0; keys.forEach(k => { e += D.series[k].e[m][0]; a += D.series[k].e[m][1]; }); return 100*e/a; };
+  document.getElementById('kWape').textContent = w('Gradient Boosting').toLocaleString('fr-FR',{maximumFractionDigits:1}) + ' %';
+  document.getElementById('kWapeRef').textContent = 'contre ' + w('Moyenne 4 semaines').toLocaleString('fr-FR',{maximumFractionDigits:1}) + ' % avec la moyenne 4 semaines';
+  document.getElementById('kWapeRef').className = 'd';
+  document.getElementById('tip').style.opacity = 0;
+  drawLine(h, b, f, band);
+  drawBars();
+}
+
+function drawLine(h, b, f, band) {
+  const box = document.getElementById('lineChart'), tip = document.getElementById('tip');
+  box.querySelectorAll('svg').forEach(s => s.remove());
+  const W = Math.max(box.clientWidth, 320), H = W < 600 ? 260 : 320, m = {l:62, r:16, t:12, b:30};
+  const allWeeks = D.weeks.concat(D.futWeeks), n = allWeeks.length;
+  const svg = el('svg', {viewBox:`0 0 ${W} ${H}`, role:'img', 'aria-label':'Ventes hebdomadaires et prévision'});
+  box.insertBefore(svg, tip);
+  const bOff = D.weeks.indexOf(D.btWeeks[0]);
+  const ymax = Math.max(...h, ...f.map((v,i)=>v+band[i]), ...b) * 1.08;
+  const x = i => m.l + i*(W-m.l-m.r)/(n-1), y = v => H-m.b - v/ymax*(H-m.t-m.b);
+  // grille + axe Y
+  const step = niceStep(ymax/4);
+  for (let v=0; v<=ymax; v+=step) {
+    el('line',{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:'var(--grid)','stroke-width':1},svg);
+    const t = el('text',{x:m.l-8,y:y(v)+4,'text-anchor':'end','font-size':11,fill:'var(--muted)'},svg); t.textContent = fmtK(v);
+  }
+  el('line',{x1:m.l,x2:W-m.r,y1:H-m.b,y2:H-m.b,stroke:'var(--axis)'},svg);
+  // axe X : un repère par trimestre
+  allWeeks.forEach((wk,i) => { const d = new Date(wk+'T00:00:00'); if (d.getDate()<=7 && (W < 600 ? [0,6] : [0,3,6,9]).includes(d.getMonth())) {
+    const t = el('text',{x:x(i),y:H-m.b+18,'text-anchor':'middle','font-size':11,fill:'var(--muted)'},svg);
+    t.textContent = d.toLocaleDateString('fr-FR',{month:'short',year:'2-digit'}); } });
+  // zone future
+  const fx0 = x(D.weeks.length-1);
+  el('rect',{x:fx0,y:m.t,width:W-m.r-fx0,height:H-m.t-m.b,fill:'#f3f6fb'},svg);
+  const ft = el('text',{x:W-m.r-4,y:m.t+14,'text-anchor':'end','font-size':11,fill:'var(--ink2)'},svg); ft.textContent = 'Prévision';
+  // bande d'incertitude
+  const fi = D.futWeeks.map((_,i)=>D.weeks.length+i);
+  let pb = `M${x(D.weeks.length-1)},${y(h[h.length-1])}`;
+  fi.forEach((xi,i)=> pb += ` L${x(xi)},${y(f[i]+band[i])}`);
+  for (let i=fi.length-1;i>=0;i--) pb += ` L${x(fi[i])},${y(Math.max(f[i]-band[i],0))}`;
+  el('path',{d:pb+' Z',fill:'rgba(235,104,52,.18)'},svg);
+  const line = (pts,color,dash) => el('path',{d:pts.map((p,i)=>(i?'L':'M')+p[0]+','+p[1]).join(' '),fill:'none',stroke:color,'stroke-width':2,'stroke-linejoin':'round','stroke-dasharray':dash||''},svg);
+  line(h.map((v,i)=>[x(i),y(v)]),'var(--s1)');
+  line(b.map((v,i)=>[x(bOff+i),y(v)]),'var(--s2)','5 4');
+  line([[x(D.weeks.length-1),y(h[h.length-1])]].concat(f.map((v,i)=>[x(D.weeks.length+i),y(v)])),'var(--s2)');
+  // survol
+  const cross = el('line',{y1:m.t,y2:H-m.b,stroke:'var(--axis)','stroke-width':1,opacity:0},svg);
+  const dot1 = el('circle',{r:4.5,fill:'var(--s1)',stroke:'#fff','stroke-width':2,opacity:0},svg);
+  const dot2 = el('circle',{r:4.5,fill:'var(--s2)',stroke:'#fff','stroke-width':2,opacity:0},svg);
+  const hit = el('rect',{x:m.l,y:m.t,width:W-m.l-m.r,height:H-m.t-m.b,fill:'transparent'},svg);
+  const move = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.touches?ev.touches[0].clientX:ev.clientX) - r.left;
+    const i = Math.max(0, Math.min(n-1, Math.round((px*W/r.width - m.l)/((W-m.l-m.r)/(n-1)))));
+    const real = i < D.weeks.length ? h[i] : null;
+    const pred = i >= D.weeks.length ? f[i-D.weeks.length] : (i>=bOff ? b[i-bOff] : null);
+    cross.setAttribute('x1',x(i)); cross.setAttribute('x2',x(i)); cross.setAttribute('opacity',1);
+    dot1.setAttribute('opacity', real!==null?1:0); if (real!==null){dot1.setAttribute('cx',x(i));dot1.setAttribute('cy',y(real));}
+    dot2.setAttribute('opacity', pred!==null?1:0); if (pred!==null){dot2.setAttribute('cx',x(i));dot2.setAttribute('cy',y(pred));}
+    let html = `<b>Semaine du ${fmtDate(allWeeks[i])}</b>`;
+    if (real!==null) html += `<span><i style="background:var(--s1)"></i>Réel : ${fmtE(real)}</span>`;
+    if (pred!==null) html += `<span><i style="background:var(--s2)"></i>Prévu : ${fmtE(pred)}</span>`;
+    if (i >= D.weeks.length) { const bb = band[i-D.weeks.length]; html += `<span>Intervalle : ${fmtE(Math.max(pred-bb,0))} – ${fmtE(pred+bb)}</span>`; }
+    if (real!==null && pred!==null) html += `<span>Écart : ${fmtPct(100*(pred/real-1))}</span>`;
+    tip.innerHTML = html; tip.style.opacity = 1;
+    const tx = x(i)*r.width/W, tw = tip.offsetWidth;
+    tip.style.left = (tx + 14 + tw > r.width ? tx - tw - 14 : tx + 14) + 'px'; tip.style.top = '10px';
+  };
+  hit.addEventListener('mousemove', move); hit.addEventListener('touchmove', move, {passive:true});
+  hit.addEventListener('mouseleave', () => { tip.style.opacity = 0; [cross,dot1,dot2].forEach(e=>e.setAttribute('opacity',0)); });
+}
+
+function drawBars() {
+  const st = fStore.value, fa = fFam.value, byFam = fa === '*';
+  document.getElementById('barTitle').textContent = (byFam ? 'CA par famille' : 'CA par magasin') + ' — 52 dernières semaines';
+  const cats = byFam ? D.families : D.stores;
+  const rows = cats.map(c => {
+    const keys = Object.keys(D.series).filter(k => { const [s,f] = k.split('|'); return byFam ? (f===c && (st==='*'||s===st)) : (s===c && f===fa); });
+    const h = sumArr(keys,'h'), cur = h.slice(-52).reduce((a,v)=>a+v,0), prev = h.slice(-104,-52).reduce((a,v)=>a+v,0);
+    return {c, cur, evo: 100*(cur/prev-1)};
+  }).sort((a,b)=>b.cur-a.cur);
+  const box = document.getElementById('barChart'); box.innerHTML = '';
+  const W = Math.max(box.clientWidth, 300), rowH = 34, m = {l: W < 420 ? 104 : 130, r: 158, t: 4}, H = m.t + rows.length*rowH;
+  const svg = el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'CA par catégorie'},box);
+  const max = Math.max(...rows.map(r=>r.cur)), bw = v => Math.max(v/max*(W-m.l-m.r), 2);
+  rows.forEach((r,i) => {
+    const yy = m.t + i*rowH;
+    const t = el('text',{x:m.l-10,y:yy+rowH/2+4,'text-anchor':'end','font-size':12.5,fill:'var(--ink2)'},svg); t.textContent = r.c;
+    el('rect',{x:m.l,y:yy+8,width:bw(r.cur),height:rowH-16,rx:4,fill:'var(--s1)'},svg);
+    const v = el('text',{x:m.l+bw(r.cur)+8,y:yy+rowH/2+4,'font-size':12.5,fill:'var(--ink)'},svg); v.textContent = fmtK(r.cur);
+    const e = el('text',{x:W-4,y:yy+rowH/2+4,'text-anchor':'end','font-size':12.5,'font-weight':600,fill:r.evo>=0?'var(--up)':'var(--down)'},svg);
+    e.textContent = (r.evo>=0?'▲ ':'▼ ') + fmtPct(r.evo);
+  });
+}
+
+function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw/p; return (n<1.5?1:n<3?2:n<7?5:10)*p; }
+fStore.addEventListener('change', render); fFam.addEventListener('change', render);
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+render();
+</script>
+</body>
+</html>
